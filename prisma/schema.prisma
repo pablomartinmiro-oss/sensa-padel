@@ -1,0 +1,725 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ==================== TENANT ====================
+model Tenant {
+  id              String    @id @default(cuid())
+  name            String
+  slug            String    @unique
+
+  // GHL Connection
+  ghlLocationId   String?   @unique
+  ghlAccessToken  String?   // AES-256-GCM encrypted
+  ghlRefreshToken String?   // AES-256-GCM encrypted
+  ghlTokenExpiry  DateTime?
+  ghlConnectedAt  DateTime?
+  ghlAppId        String?   // Marketplace app ID
+
+  // Onboarding
+  onboardingComplete Boolean @default(false)
+
+  // Data mode
+  dataMode        String    @default("mock") // "mock" or "live"
+
+  // Demo tenant flag
+  isDemo          Boolean   @default(false)
+
+  // Onboarding steps (for real tenants)
+  onboardingStep1 Boolean   @default(false) // Has products
+  onboardingStep2 Boolean   @default(false) // Has quotes
+  onboardingStep3 Boolean   @default(false) // Has reservations
+  onboardingDismissed Boolean @default(false)
+
+  // Sync progress (shown in UI during full sync)
+  syncState       String?   // "syncing" | "complete" | "error" | null
+  syncProgressMsg String?   // "Contactos: 2400/5000"
+  lastSyncAt      DateTime?
+  lastSyncError   String?
+
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  users              User[]
+  roles              Role[]
+  moduleConfigs      ModuleConfig[]
+  notifications      Notification[]
+  products           Product[]
+  quotes             Quote[]
+  reservations       Reservation[]
+  stationCapacity    StationCapacity[]
+  grouponMappings    GrouponProductMapping[]
+  tasks              Task[]
+  cachedContacts     CachedContact[]
+  cachedConversations CachedConversation[]
+  cachedOpportunities CachedOpportunity[]
+  cachedPipelines    CachedPipeline[]
+  syncStatus         SyncStatus?
+  seasonCalendar     SeasonCalendar[]
+}
+
+// ==================== USER ====================
+model User {
+  id            String    @id @default(cuid())
+  email         String
+  name          String?
+  passwordHash  String?
+  avatarUrl     String?
+  tenantId      String
+  roleId        String
+  ghlUserId     String?   // Maps to GHL user ID
+  isActive      Boolean   @default(true)
+  emailVerified Boolean   @default(false)
+  inviteToken   String?   @unique
+  inviteExpires DateTime?
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  role          Role      @relation(fields: [roleId], references: [id])
+  notifications Notification[]
+
+  @@unique([email, tenantId])
+  @@index([tenantId])
+  @@index([ghlUserId])
+}
+
+// ==================== RBAC ====================
+model Role {
+  id          String   @id @default(cuid())
+  name        String
+  tenantId    String
+  isSystem    Boolean  @default(false)  // System roles can't be deleted
+  permissions Json     // String array of permission keys
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users       User[]
+
+  @@unique([name, tenantId])
+  @@index([tenantId])
+}
+
+// ==================== MODULE CONFIG ====================
+model ModuleConfig {
+  id          String   @id @default(cuid())
+  tenantId    String
+  module      String   // "comms", "pipelines", "analytics", "contacts"
+  isEnabled   Boolean  @default(true)
+  config      Json?    @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, module])
+  @@index([tenantId])
+}
+
+// ==================== NOTIFICATIONS ====================
+model Notification {
+  id          String   @id @default(cuid())
+  tenantId    String
+  userId      String   // Target user
+  type        String   // "new_message", "deal_moved", "contact_created", etc.
+  title       String
+  body        String?
+  data        Json?    // Arbitrary payload (contactId, conversationId, etc.)
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([tenantId, createdAt])
+}
+
+// ==================== PRODUCT CATALOG ====================
+model Product {
+  id             String   @id @default(cuid())
+  tenantId       String?  // null = global catalog (shared across all tenants)
+  category       String   // "alquiler", "escuela", "clase_particular", "forfait", "locker", "apreski"
+  name           String
+  station        String   // "baqueira", "sierra_nevada", "valdesqui", "la_pinilla", "grandvalira", "formigal", "alto_campoo", "all"
+  description    String?
+  personType     String?  // "adulto", "infantil", "baby", null
+  tier           String?  // "media_quality", "alta_quality", null (for equipment tiers)
+  includesHelmet Boolean  @default(false)
+  priceType      String   // "per_day", "per_person_per_hour", "per_session", "fixed"
+  price          Float    @default(0) // Base price (1 day, media season) for display
+  pricingMatrix  Json?    // Season-aware pricing: { media: {...}, alta: {...} }
+  isActive       Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant         Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  quoteItems     QuoteItem[]
+
+  @@index([station, category])
+  @@index([category])
+}
+
+// ==================== SEASON CALENDAR ====================
+model SeasonCalendar {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  station   String   // "baqueira", "sierra_nevada", etc. or "all"
+  season    String   // "media" or "alta"
+  startDate DateTime
+  endDate   DateTime
+  label     String?  // "Navidades", "Semana Santa", etc.
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, station])
+  @@unique([tenantId, station, startDate])
+}
+
+// ==================== QUOTES (PRESUPUESTOS) ====================
+model Quote {
+  id              String    @id @default(cuid())
+  tenantId        String
+  ghlContactId    String?   // GHL contact ID
+  clientName      String
+  clientEmail     String?
+  clientPhone     String?
+  clientNotes     String?
+
+  // Request data (from form)
+  destination     String    // baqueira, sierra_nevada, formigal, alto_campoo, grandvalira
+  checkIn         DateTime
+  checkOut        DateTime
+  adults          Int       @default(2)
+  children        Int       @default(0)
+  wantsAccommodation Boolean @default(false)
+  wantsForfait    Boolean   @default(false)
+  wantsClases     Boolean   @default(false)
+  wantsEquipment  Boolean   @default(false)
+
+  // Quote state
+  status          String    @default("nuevo") // nuevo, borrador, enviado, pagado, expirado, cancelado
+  totalAmount     Float     @default(0)
+  expiresAt       DateTime?
+  sentAt          DateTime?
+
+  // Payment (Redsys)
+  redsysOrderId    String?   @unique  // Ds_Order (12 chars, unique per payment)
+  redsysPaymentUrl String?             // Generated Redsys payment URL
+  paymentMethod    String?             // "redsys" | "transfer" | "cash"
+  paymentStatus    String?   @default("pending") // "pending" | "paid" | "failed"
+  paidAt           DateTime?
+  paymentRef       String?             // Redsys auth code or transfer ref
+
+  // PDF
+  pdfUrl           String?             // URL/path to generated PDF
+
+  // Email tracking
+  emailSentAt      DateTime?           // When quote email was sent
+  emailSentTo      String?             // Email address sent to
+  reminderSentAt   DateTime?           // When last reminder was sent
+  reminderCount    Int       @default(0)
+  lastReminderStep String?             // "reminder_1" | "reminder_2" | "discount" | "expiry_warning" | "expired"
+
+  // Post-payment follow-up tracking
+  crossSellSentAt  DateTime?           // When cross-sell email was sent
+  reviewSentAt     DateTime?           // When review request was sent
+  preTripStep      String?             // "pre_48h" | "pre_24h" | "day_of"
+
+  // GHL link
+  ghlOpportunityId String?             // Link to GHL opportunity
+  ghlPipelineId    String?             // Pipeline the opp is in
+  ghlStageId       String?             // Current stage ID
+
+  // Internal
+  source           String?             // "manual" | "survey" (auto-created from GHL webhook)
+  internalNotes    String?
+  createdBy        String?             // User ID who created
+
+  // Cancellation
+  cancelledAt      DateTime?
+  cancelReason     String?             // "cliente_solicita" | "sin_disponibilidad" | "error_presupuesto" | "otro"
+  cancelType       String?             // "bono" | "devolucion" | "sin_devolucion" | "groupon"
+  cancelNotes      String?             // Free text for "otro"
+  refundIban       String?
+  refundTitular    String?
+  refundStatus     String?             // "pendiente" | "completado"
+  bonoCode         String?             // Generated voucher code
+  bonoAmount       Float?
+  bonoExpiresAt    DateTime?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  items           QuoteItem[]
+  reservations    Reservation[]
+  tasks           Task[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+}
+
+model QuoteItem {
+  id          String   @id @default(cuid())
+  quoteId     String
+  productId   String?
+  name        String   // Snapshot of product name
+  description String?
+  category    String?  // Product category snapshot: forfait, alquiler, clase_particular, etc.
+  quantity    Int      @default(1)
+  unitPrice   Float
+  discount    Float    @default(0) // percentage 0-100
+  totalPrice  Float
+
+  // Per-product dates and persons
+  startDate       DateTime?
+  endDate         DateTime?
+  numDays         Int?
+  numPersons      Int?
+  ageDetails      Json?     // [{age: 8, type: "niño"}, {age: 35, type: "adulto"}]
+
+  // Ski product variables
+  station         String?
+  modalidad       String?   // "alpino" | "snow"
+  nivel           String?   // "A" | "A+" | "B" | "B+" | "C" | "D"
+  sector          String?   // "Baqueira" | "Beret" | "Formigal" etc.
+  idioma          String?   // "español" | "inglés" | "francés"
+  horario         String?   // "10:00" | "13:00"
+  puntoEncuentro  String?   // Meeting point
+
+  // Equipment/rental
+  tipoCliente     String?   // "niño" | "adulto" | "baby" | "senior"
+  gama            String?   // "media" | "alta"
+  casco           Boolean?  // Helmet included
+  tipoActividad   String?   // "esquí" | "snow"
+  tallaBotas      String?   // Boot size (filled post-purchase)
+  alturaPeso      String?   // Height/weight (filled post-purchase)
+  dni             String?   // DNI (for accommodation/rental)
+
+  // Accommodation
+  regimen           String?   // "solo_alojamiento" | "desayuno" | "media_pension" | "pension_completa"
+  alojamientoNombre String?   // Accommodation name
+
+  // Insurance & extras
+  seguroIncluido  Boolean?  // Insurance included (forfait)
+  notes           String?
+
+  createdAt   DateTime @default(now())
+
+  quote       Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  tasks       Task[]
+
+  @@index([quoteId])
+}
+
+// ==================== TASKS (auto-generated on payment) ====================
+model Task {
+  id            String    @id @default(cuid())
+  tenantId      String
+  quoteId       String
+  quoteItemId   String?
+  type          String    // "request_dni" | "request_sizes" | "validate_level" | "offer_insurance" | "send_location" | "check_dni" | "prepare_material"
+  title         String
+  description   String?
+  status        String    @default("pending") // "pending" | "completed"
+  dueDate       DateTime?
+  assignedTo    String?   // User ID
+  completedAt   DateTime?
+  completedBy   String?   // User ID who completed
+  createdAt     DateTime  @default(now())
+
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  quote         Quote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  quoteItem     QuoteItem? @relation(fields: [quoteItemId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@index([quoteId])
+  @@index([tenantId, dueDate])
+}
+
+// ==================== RESERVATIONS ====================
+model Reservation {
+  id              String    @id @default(cuid())
+  tenantId        String
+  ghlContactId    String?
+  quoteId         String?
+
+  // Client
+  clientName      String
+  clientPhone     String
+  clientEmail     String
+  couponCode      String?
+
+  // Booking
+  source          String    // "groupon" | "caja" | "web" | "presupuesto"
+  station         String
+  activityDate    DateTime
+  schedule        String
+  language        String    @default("es")
+
+  // Participants (for group bookings)
+  participants    Json?     // array of {name, type, service, level, material}
+
+  // Services (for individual bookings)
+  services        Json?     // array of {type, quantity, modality?, level?, days?}
+
+  // Pricing
+  totalPrice      Float     @default(0)
+  discount        Float     @default(0)
+  paymentMethod   String?
+  paymentRef      String?
+
+  // Status
+  status          String    @default("pendiente") // pendiente, confirmada, sin_disponibilidad, cancelada
+
+  // Notes
+  notes           String?
+  internalNotes   String?
+
+  // Notification tracking
+  emailSentAt     DateTime?
+  whatsappSentAt  DateTime?
+  notificationType String?  // "confirmacion" | "sin_disponibilidad"
+
+  // Voucher tracking (Groupon)
+  voucherImageUrl     String?
+  voucherSecurityCode String?
+  voucherCouponCode   String?
+  voucherProduct      String?
+  voucherPricePaid    Float?
+  voucherExpiry       DateTime?
+  voucherRedeemedAt   DateTime?
+  voucherRedeemed     Boolean   @default(false)
+
+  // Calendar
+  calendarFileUrl String?
+  qrCodeUrl       String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  createdBy       String?
+
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  quote           Quote?    @relation(fields: [quoteId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@index([tenantId, activityDate])
+  @@index([tenantId, createdAt])
+}
+
+// ==================== STATION CAPACITY ====================
+model StationCapacity {
+  id          String   @id @default(cuid())
+  tenantId    String
+  station     String
+  date        DateTime
+  serviceType String   // "cursillo_adulto" | "cursillo_infantil" | "clase_particular"
+  maxCapacity Int
+  booked      Int      @default(0)
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, station, date, serviceType])
+  @@index([tenantId, station])
+}
+
+// ==================== GROUPON PRODUCT MAPPING ====================
+model GrouponProductMapping {
+  id              String   @id @default(cuid())
+  tenantId        String
+  grouponDesc     String   // Groupon product description pattern
+  pattern         String   // Regex pattern to match
+  services        Json     // Array of {type, days, quantity, noHelmet?}
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+// ==================== WEBHOOK LOG ====================
+model WebhookLog {
+  id          String    @id @default(cuid())
+  tenantId    String?
+  event       String    // GHL event type
+  payload     Json      // Raw webhook payload
+  status      String    @default("received") // received, processed, failed
+  error       String?
+  processedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([tenantId, event])
+  @@index([createdAt])
+}
+
+// ==================== GHL CACHE TABLES ====================
+
+model CachedContact {
+  id           String    @id // GHL contact ID
+  tenantId     String
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  firstName    String?
+  lastName     String?
+  name         String?
+  email        String?
+  phone        String?
+  tags         Json?     // string array
+  customFields Json?     // key-value pairs
+  source       String?
+  dateAdded    DateTime?
+  lastActivity DateTime?
+  dnd          Boolean   @default(false)
+  raw          Json?     // full GHL response
+  cachedAt     DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, name])
+  @@index([tenantId, email])
+  @@index([tenantId, phone])
+}
+
+model CachedConversation {
+  id              String    @id // GHL conversation ID
+  tenantId        String
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contactId       String
+  contactName     String?
+  contactPhone    String?
+  contactEmail    String?
+  lastMessageBody String?
+  lastMessageDate DateTime?
+  lastMessageType String?   // SMS, Email, WhatsApp
+  unreadCount     Int       @default(0)
+  raw             Json?
+  cachedAt        DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, lastMessageDate])
+}
+
+model CachedOpportunity {
+  id              String    @id // GHL opportunity ID
+  tenantId        String
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  pipelineId      String
+  pipelineStageId String
+  name            String?
+  contactId       String?
+  contactName     String?
+  monetaryValue   Float?
+  status          String?   // open, won, lost, abandoned
+  assignedTo      String?
+  lastActivity    DateTime?
+  raw             Json?
+  cachedAt        DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([tenantId, pipelineId])
+  @@index([tenantId, pipelineStageId])
+}
+
+model CachedPipeline {
+  id        String   @id // GHL pipeline ID
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  stages    Json     // array of { id, name, position }
+  raw       Json?
+  cachedAt  DateTime @default(now())
+
+  @@index([tenantId])
+}
+
+// ==================== SYNC QUEUE ====================
+
+model SyncQueue {
+  id          String   @id @default(cuid())
+  tenantId    String
+  action      String   // "updateContact", "createOpportunity", etc.
+  resourceId  String   // GHL resource ID
+  payload     Json     // data to send
+  attempts    Int      @default(0)
+  maxAttempts Int      @default(5)
+  lastError   String?
+  status      String   @default("pending") // pending, processing, completed, failed
+  createdAt   DateTime @default(now())
+  nextRetryAt DateTime @default(now())
+
+  @@index([tenantId, status])
+  @@index([status, nextRetryAt])
+}
+
+// ==================== SYNC STATUS ====================
+
+model SyncStatus {
+  id              String    @id @default(cuid())
+  tenantId        String    @unique
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lastFullSync    DateTime?
+  lastIncrSync    DateTime?
+  contactCount    Int       @default(0)
+  conversationCount Int     @default(0)
+  opportunityCount  Int     @default(0)
+  pipelineCount   Int       @default(0)
+  syncInProgress  Boolean   @default(false)
+  lastError       String?
+  updatedAt       DateTime  @updatedAt
+
+  @@index([tenantId])
+}
+
+// ==================== CONTACT FORM SUBMISSIONS ====================
+
+model ContactSubmission {
+  id        String   @id @default(cuid())
+  nombre    String
+  email     String
+  telefono  String?
+  asunto    String   @default("Información general")
+  mensaje   String
+  createdAt DateTime @default(now())
+
+  @@index([email, createdAt])
+}
+
+// ==================== SENSA PADEL ====================
+
+model SensaMember {
+  id           String   @id @default(cuid())
+  name         String
+  phone        String?
+  email        String?
+  memberType   String   @default("none") // "unlimited", "standard", "none"
+  joinDate     DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions     SensaSession[]
+  lead         SensaLead?
+
+  @@index([memberType])
+  @@index([createdAt])
+}
+
+model SensaRevenue {
+  id                 String   @id @default(cuid())
+  date               DateTime @default(now())
+  courtBookings      Int      @default(0)
+  courtRevenue       Float    @default(0)
+  newMemberships     Int      @default(0)
+  membershipRevenue  Float    @default(0)
+  classesRevenue     Float    @default(0)
+  otherRevenue       Float    @default(0)
+  notes              String?
+  createdAt          DateTime @default(now())
+
+  @@index([date])
+}
+
+model SensaSession {
+  id         String   @id @default(cuid())
+  memberId   String
+  member     SensaMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  court      String?
+  amountPaid Float    @default(0)
+  isFirst    Boolean  @default(false)
+  playedAt   DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([memberId])
+  @@index([playedAt])
+}
+
+model SensaLead {
+  id             String    @id @default(cuid())
+  memberId       String    @unique
+  member         SensaMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  status         String    @default("new") // "new", "hot", "cold", "contacted", "converted"
+  firstVisit     DateTime  @default(now())
+  lastVisit      DateTime  @default(now())
+  visitCount     Int       @default(1)
+  followUpDate   DateTime?
+  notes          String?
+  convertedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([status])
+  @@index([lastVisit])
+}
+
+// ==================== CHIEF OF STAFF ====================
+
+model Integration {
+  id           String    @id @default(cuid())
+  userId       String
+  provider     String    // 'gmail' | 'notion' | 'meetgeek'
+  accessToken  String?
+  refreshToken String?
+  tokenExpiry  DateTime?
+  metadata     Json      @default("{}")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([userId, provider])
+  @@index([userId])
+}
+
+model InboxItem {
+  id             String    @id @default(cuid())
+  userId         String
+  source         String    // 'gmail' | 'transcript' | 'notion' | 'manual'
+  externalId     String?   // gmail message ID etc
+  subject        String?
+  content        String?
+  fromEmail      String?
+  fromName       String?
+  receivedAt     DateTime?
+  processedAt    DateTime?
+  aiSummary      String?
+  requiresAction Boolean   @default(false)
+  actionType     String?   // 'reply' | 'follow-up' | 'task' | 'info'
+  priority       Int       @default(3) // 1=urgent 2=important 3=normal 4=low
+  status         String    @default("pending") // 'pending' | 'done' | 'snoozed' | 'dismissed'
+  snoozedUntil   DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([userId, status])
+  @@index([userId, requiresAction])
+  @@index([externalId])
+}
+
+model ChiefTask {
+  id            String    @id @default(cuid())
+  userId        String
+  title         String
+  description   String?
+  source        String?   // 'gmail' | 'transcript' | 'manual'
+  sourceId      String?   // reference to InboxItem
+  sourceContext String?   // snippet showing where task came from
+  priority      Int       @default(3)
+  status        String    @default("todo") // 'todo' | 'in_progress' | 'done' | 'cancelled'
+  dueDate       DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([userId, status])
+  @@index([userId, priority])
+}
