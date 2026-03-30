@@ -3,6 +3,6 @@ builder = "nixpacks"
 buildCommand = "npm install --legacy-peer-deps && npx prisma generate && npm run build"
 
 [deploy]
-startCommand = "node_modules/.bin/next start"
+startCommand = "npm start"
 healthcheckPath = "/api/health"
 healthcheckTimeout = 60
