@@ -1,10 +1,7 @@
 [build]
 builder = "nixpacks"
-buildCommand = "npm ci --legacy-peer-deps && npx prisma generate && npm run build"
 
 [deploy]
-startCommand = "node_modules/.bin/next start -p $PORT"
+startCommand = "node_modules/.bin/next start"
 healthcheckPath = "/api/health"
 healthcheckTimeout = 120
-restartPolicyType = "on_failure"
-restartPolicyMaxRetries = 3
