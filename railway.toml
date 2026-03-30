@@ -1,7 +1,0 @@
-[build]
-builder = "nixpacks"
-
-[deploy]
-startCommand = "node_modules/.bin/next start"
-healthcheckPath = "/api/health"
-healthcheckTimeout = 120
