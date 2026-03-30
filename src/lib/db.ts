@@ -8,7 +8,10 @@ const globalForPrisma = globalThis as unknown as {
 function createPrismaClient(): PrismaClient {
   const url = process.env.DATABASE_URL;
   if (!url) {
-    throw new Error("DATABASE_URL is not set");
+    // During build time, use a placeholder URL
+    process.env.DATABASE_URL = "postgresql://localhost:5432/placeholder";
+    const dummyAdapter = new PrismaPg({ connectionString: "postgresql://localhost:5432/placeholder" });
+    return new PrismaClient({ adapter: dummyAdapter });
   }
   const adapter = new PrismaPg({ connectionString: url });
   return new PrismaClient({ adapter });

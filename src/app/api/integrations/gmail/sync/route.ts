@@ -4,6 +4,8 @@ import { generateObject } from "ai";
 import { anthropic } from "@ai-sdk/anthropic";
 import { z } from "zod";
 
+export const dynamic = "force-dynamic";
+
 const PABLO_USER_ID = "pablo";
 
 interface GmailTokens {

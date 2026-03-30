@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const clientId = process.env.GMAIL_CLIENT_ID;
   const redirectUri = process.env.GMAIL_REDIRECT_URI || "https://openclaw-production-50e4.up.railway.app/api/integrations/gmail/callback";

@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db";
 import { generateText } from "ai";
 import { anthropic } from "@ai-sdk/anthropic";
 
+export const dynamic = "force-dynamic";
+
 const PABLO_USER_ID = "pablo";
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "8599127311:AAHuF9UfbA0W1IpSo9yaD_JpjbVfZ-a8dCg";
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || "2130743649";
