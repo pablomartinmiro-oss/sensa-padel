@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { signIn } from "next-auth/react";
+import { signIn, getSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,7 +44,13 @@ function LoginForm() {
     }
 
     if (result?.url) {
-      window.location.href = result.url;
+      // For sensa-padel tenant, always go directly to /sensa-padel dashboard
+      const session = await getSession();
+      if (session?.user?.tenantId === "sensa-padel-tenant-001") {
+        window.location.href = "/sensa-padel";
+      } else {
+        window.location.href = result.url;
+      }
     }
   }
 

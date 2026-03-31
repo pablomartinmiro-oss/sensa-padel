@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard, TrendingUp, Users, UserCheck, Grid3x3, ChevronRight,
+  LayoutDashboard, TrendingUp, Users, UserCheck, Grid3x3, ChevronRight, Bot,
 } from "lucide-react";
 
 const nav = [
@@ -12,6 +12,7 @@ const nav = [
   { href: "/sensa-padel/leads", label: "Leads", icon: UserCheck },
   { href: "/sensa-padel/members", label: "Members", icon: Users },
   { href: "/sensa-padel/courts", label: "Courts", icon: Grid3x3 },
+  { href: "/sensa-padel/chat", label: "Atlas AI", icon: Bot },
 ];
 
 export default function SensaLayout({ children }: { children: React.ReactNode }) {

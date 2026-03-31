@@ -79,12 +79,13 @@ export async function proxy(req: NextRequest) {
   }
 
   // Onboarding check: if tenant hasn't completed onboarding, redirect to /onboarding
-  // (except if already on onboarding pages or API routes)
+  // (except if already on onboarding pages, API routes, or sensa-padel routes which don't need GHL)
   const onboardingComplete = token.onboardingComplete as boolean | undefined;
   if (
     onboardingComplete === false &&
     !pathname.startsWith("/onboarding") &&
-    !pathname.startsWith("/api/")
+    !pathname.startsWith("/api/") &&
+    !pathname.startsWith("/sensa-padel")
   ) {
     return NextResponse.redirect(new URL("/onboarding", req.url));
   }
