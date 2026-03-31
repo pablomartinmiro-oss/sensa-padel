@@ -2,5 +2,5 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "next start -p ${PORT:-3000}"
+startCommand = "npx next start -p ${PORT:-3000}"
 healthcheckPath = "/api/health"
